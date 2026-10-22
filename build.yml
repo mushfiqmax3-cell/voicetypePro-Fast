@@ -1,0 +1,72 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Extract Project Files
+        run: |
+          # রিপোজিটরির যেকোনো নামের জিপ ফাইল খুঁজে স্বয়ংক্রিয়ভাবে আনজিপ করবে
+          ZIP_NAME=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
+          if [ -n "$ZIP_NAME" ]; then
+            echo "Unpacking: $ZIP_NAME"
+            unzip -o "$ZIP_NAME"
+          fi
+          
+          # যদি কোনো সাব-ফোল্ডারের ভেতরে ফাইল থাকে তবে বাইরে নিয়ে আসবে
+          if [ -d "voicetype-pro" ]; then
+            cp -rf voicetype-pro/* . 2>/dev/null || true
+            cp -rf voicetype-pro/.* . 2>/dev/null || true
+          fi
+          if [ -d "voicetype-pro1" ]; then
+            cp -rf voicetype-pro1/* . 2>/dev/null || true
+            cp -rf voicetype-pro1/.* . 2>/dev/null || true
+          fi
+
+      - name: Fix Keystore Crash (Disable debugConfig)
+        run: |
+          # কিস্টোর ক্র্যাশ রোধে build.gradle.kts থেকে debugConfig লাইনটি স্বয়ংক্রিয়ভাবে মুছে দেবে
+          sed -i '/signingConfig = signingConfigs.getByName("debugConfig")/d' app/build.gradle.kts
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Generate Missing Gradle Wrapper
+        run: |
+          # মিসিং gradlew ফাইল তৈরি এবং এক্সিকিউট পারমিশন সেট করবে
+          gradle wrapper --gradle-version 9.3.1
+          chmod +x gradlew
+
+      - name: Create Environment Secrets File
+        run: |
+          if [ -f ".env.example" ]; then
+            cp .env.example .env
+          else
+            echo "GEMINI_API_KEY=MY_GEMINI_API_KEY" > .env
+          fi
+
+      - name: Compile and Build Debug APK
+        run: ./gradlew assembleDebug -x test --no-daemon --stacktrace
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceTypePro-Release-APK
+          path: app/build/outputs/apk/debug/*.apk
+
+          
